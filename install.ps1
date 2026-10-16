@@ -61,17 +61,26 @@
   )
   if ($setup.ExitCode -ne 0) { Fail "the installer exited with code $($setup.ExitCode). Its log is at $dir\setup.log" }
 
-  # The installer put PeriCode on the user PATH; make it usable in this window too.
-  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-  $env:Path = "$userPath;$machinePath"
-  $cmd = Get-Command pericode -ErrorAction SilentlyContinue
-  if (-not $cmd) { Fail "PeriCode installed, but 'pericode' is not on PATH. Open a new terminal and try again." }
-  Ok "Installed to $(Split-Path $cmd.Source)"
+  # Where the installer put it (its uninstall entry records the folder).
+  $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{B5E7A1F2-9D4C-4F8E-A6B1-3D2C1E7F8A9B}_is1"
+  $appDir = (Get-ItemProperty $key -ErrorAction SilentlyContinue).InstallLocation
+  if (-not $appDir) { $appDir = Join-Path $env:LOCALAPPDATA "Programs\PeriCode" }
+  $appDir = $appDir.TrimEnd('\')
+  $launcher = Join-Path $appDir "pericode.cmd"
+  if (-not (Test-Path $launcher)) { Fail "the installer finished but $launcher is missing. Its log is at $dir\setup.log" }
+  Ok "Installed to $appDir"
   Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
 
+  # The installer put PeriCode on the user PATH; make it usable in this window too.
+  $env:Path = [Environment]::GetEnvironmentVariable("Path", "User") + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $cmd = Get-Command pericode -ErrorAction SilentlyContinue
+  if ($cmd -and (Split-Path $cmd.Source).TrimEnd('\') -ne $appDir) {
+    Write-Host "    Note: 'pericode' in a terminal runs another copy first: $($cmd.Source)" -ForegroundColor Yellow
+    Write-Host "    Remove that one (for a source install: npm unlink -g pericode) to use this install." -ForegroundColor Yellow
+  }
+
   Say "Checking PeriCode"
-  & pericode doctor
+  & $launcher doctor
   Write-Host ""
   Write-Host "PeriCode is ready. Open a new terminal and run: pericode" -ForegroundColor Green
   Write-Host "The first run walks you through signing in to Claude, ChatGPT or GitHub Copilot."
